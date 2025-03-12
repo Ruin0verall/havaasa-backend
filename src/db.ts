@@ -14,7 +14,20 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+// Debug logging
+console.log('Supabase Configuration:', {
+  url: supabaseUrl,
+  anonKeyLength: supabaseKey?.length,
+  serviceKeyLength: supabaseServiceKey?.length,
+  anonKeyStart: supabaseKey?.substring(0, 10),
+  serviceKeyStart: supabaseServiceKey?.substring(0, 10)
+});
+
 if (!supabaseUrl || !supabaseKey) {
+  console.error('Missing Supabase configuration:', {
+    hasUrl: !!supabaseUrl,
+    hasKey: !!supabaseKey
+  });
   throw new Error('Missing required Supabase configuration. Check your .env file.');
 }
 
@@ -25,15 +38,38 @@ export type AuthResponse = Awaited<ReturnType<DbClient['auth']['signInWithPasswo
 /**
  * Main database client with anonymous access
  */
-export const db: DbClient = createClient<Database>(supabaseUrl, supabaseKey);
+export const db: DbClient = createClient<Database>(
+  supabaseUrl,
+  supabaseKey,
+  {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: false
+    }
+  }
+);
 
 /**
  * Admin database client with elevated privileges
  * Only available if service role key is provided
  */
 export const adminDb: DbClient | null = supabaseServiceKey 
-  ? createClient<Database>(supabaseUrl, supabaseServiceKey)
+  ? createClient<Database>(
+      supabaseUrl,
+      supabaseServiceKey,
+      {
+        auth: {
+          autoRefreshToken: true,
+          persistSession: false
+        }
+      }
+    )
   : null;
+
+// Log admin client status
+console.log('Admin client status:', {
+  isAvailable: !!adminDb
+});
 
 /**
  * Authenticate user with email and password

@@ -12,6 +12,7 @@ import { requestLogger } from "./middleware/requestLogger";
 import articlesRouter from "./routes/articles";
 import categoriesRouter from "./routes/categories";
 import authRouter from "./routes/auth";
+import adminRouter from "./routes/admin";
 
 // Initialize environment variables
 dotenv.config();
@@ -46,6 +47,7 @@ app.use(requestLogger);
 app.use("/api/articles", articlesRouter);
 app.use("/api/categories", categoriesRouter);
 app.use("/api/auth", authRouter);
+app.use("/api/admin", adminRouter);
 
 // Health check endpoint
 app.get("/api/health", (req, res) => {

@@ -4,6 +4,7 @@ import morgan from 'morgan';
 import articlesRouter from './routes/articles';
 import categoriesRouter from './routes/categories';
 import authRouter from './routes/auth';
+import adminRouter from './routes/admin';
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 
@@ -34,6 +35,7 @@ app.get('/health', (req, res) => {
 app.use('/api/articles', articlesRouter);
 app.use('/api/categories', categoriesRouter);
 app.use('/api/auth', authRouter);
+app.use('/api/admin', adminRouter);
 
 // Error handling for invalid JSON
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

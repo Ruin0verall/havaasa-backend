@@ -63,12 +63,6 @@ router.get("/:id", async (req, res, next) => {
     const baseUrl = "https://gaafu-magazine-test-eight.vercel.app";
     const userAgent = req.headers["user-agent"] || "";
 
-    // Log incoming requests for debugging
-    console.log(`Incoming request for article ${id}:`, {
-      userAgent,
-      isCrawler: isSocialMediaCrawler(userAgent),
-    });
-
     const { data: article, error } = await db
       .from("articles")
       .select(
@@ -82,27 +76,8 @@ router.get("/:id", async (req, res, next) => {
       .eq("id", id)
       .single();
 
-    if (error) {
-      console.error("Database error:", error);
-      return res.status(500).json({ message: "Internal server error" });
-    }
-
+    if (error) throw error;
     if (!article) {
-      if (isSocialMediaCrawler(userAgent)) {
-        return res.status(404).send(`
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <title>Article Not Found | Gaafu Magazine</title>
-              <meta name="description" content="The requested article could not be found." />
-            </head>
-            <body>
-              <h1>Article Not Found</h1>
-              <p>The requested article could not be found.</p>
-            </body>
-          </html>
-        `);
-      }
       return res.status(404).json({ message: "Article not found" });
     }
 
@@ -130,46 +105,26 @@ router.get("/:id", async (req, res, next) => {
 
     // If it's a social media crawler, return pre-rendered HTML
     if (isSocialMediaCrawler(userAgent)) {
-      try {
-        const html = generateMetaHTML({
-          title: metadata.og.title,
-          description: metadata.og.description,
-          image: metadata.og.image,
-          url: metadata.og.url,
-          type: metadata.og.type,
-          site_name: metadata.og.site_name,
-        });
+      const html = generateMetaHTML({
+        title: metadata.og.title,
+        description: metadata.og.description,
+        image: metadata.og.image,
+        url: metadata.og.url,
+        type: metadata.og.type,
+        site_name: metadata.og.site_name,
+      });
 
-        // Set headers for better crawler support
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.setHeader("Cache-Control", "public, max-age=300");
-        res.setHeader("X-Robots-Tag", "all");
-        return res.status(200).send(html);
-      } catch (error) {
-        console.error("Error generating HTML:", error);
-        return res.status(500).send("Internal Server Error");
-      }
+      // Set headers for better crawler support
+      res.setHeader("Content-Type", "text/html");
+      res.setHeader("Cache-Control", "public, max-age=300"); // Cache for 5 minutes
+      res.setHeader("X-Robots-Tag", "all");
+      return res.send(html);
     }
 
     // For regular requests, return JSON as before
-    res.status(200).json(metadata);
+    res.json(metadata);
   } catch (error: any) {
     console.error("Error fetching article:", error);
-    if (isSocialMediaCrawler(req.headers["user-agent"] || "")) {
-      return res.status(500).send(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Error | Gaafu Magazine</title>
-            <meta name="description" content="An error occurred while fetching the article." />
-          </head>
-          <body>
-            <h1>Error</h1>
-            <p>An error occurred while fetching the article.</p>
-          </body>
-        </html>
-      `);
-    }
     next(error);
   }
 });

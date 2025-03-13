@@ -4,25 +4,23 @@ const articleRoutes = require("./routes/articles");
 
 const app = express();
 
-// Enable pre-flight requests for all routes
-app.options("*", cors());
+// ... existing code ...
 
-// CORS middleware configuration
 app.use(
   cors({
-    origin: "*", // Allow all origins for crawler access
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "User-Agent"],
+    origin: [
+      process.env.FRONTEND_URL || "http://localhost:5173",
+      "https://gaafu-magazine-test-eight.vercel.app",
+    ],
     credentials: true,
-    maxAge: 86400, // Cache preflight requests for 24 hours
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-// Body parser middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
 app.use("/api/articles", articleRoutes);
+
+// ... existing code ...
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

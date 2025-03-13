@@ -6,18 +6,25 @@ import { uploadFile } from "../utils/storage";
 const router = express.Router();
 
 // Middleware to handle authentication
-const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+const requireAuth = async (
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
-    return res.status(401).json({ error: 'No authorization header' });
+    return res.status(401).json({ error: "No authorization header" });
   }
 
   try {
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error } = await db.auth.getUser(token);
-    
+    const token = authHeader.replace("Bearer ", "");
+    const {
+      data: { user },
+      error,
+    } = await db.auth.getUser(token);
+
     if (error || !user) {
-      return res.status(401).json({ error: 'Invalid or expired token' });
+      return res.status(401).json({ error: "Invalid or expired token" });
     }
 
     // Add user and token to request object
@@ -25,8 +32,8 @@ const requireAuth = async (req: express.Request, res: express.Response, next: ex
     (req as any).token = token;
     next();
   } catch (error) {
-    console.error('Auth error:', error);
-    return res.status(401).json({ error: 'Authentication failed' });
+    console.error("Auth error:", error);
+    return res.status(401).json({ error: "Authentication failed" });
   }
 };
 
@@ -51,6 +58,7 @@ router.get("/", async (req, res, next) => {
 router.get("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
+    const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
 
     const { data: article, error } = await db
       .from("articles")
@@ -70,7 +78,20 @@ router.get("/:id", async (req, res, next) => {
       return res.status(404).json({ message: "Article not found" });
     }
 
-    res.json(article);
+    // Add metadata for OG tags
+    const metadata = {
+      ...article,
+      og: {
+        title: article.title,
+        description:
+          article.excerpt || article.content.substring(0, 200) + "...",
+        image: article.image_url || `${baseUrl}/default-article-image.jpg`,
+        url: `${baseUrl}/articles/${article.id}`,
+        type: "article",
+      },
+    };
+
+    res.json(metadata);
   } catch (error: any) {
     console.error("Error fetching article:", error);
     next(error);
@@ -80,13 +101,15 @@ router.get("/:id", async (req, res, next) => {
 // Create article with image upload
 router.post("/", requireAuth, upload.single("image"), async (req, res) => {
   try {
-    console.log('Creating article with data:', { 
-      ...req.body, 
-      file: req.file ? {
-        originalname: req.file.originalname,
-        mimetype: req.file.mimetype,
-        size: req.file.size
-      } : 'not present'
+    console.log("Creating article with data:", {
+      ...req.body,
+      file: req.file
+        ? {
+            originalname: req.file.originalname,
+            mimetype: req.file.mimetype,
+            size: req.file.size,
+          }
+        : "not present",
     });
 
     let imageUrl = null;
@@ -94,18 +117,18 @@ router.post("/", requireAuth, upload.single("image"), async (req, res) => {
     // Upload image if provided
     if (req.file) {
       try {
-        console.log('Processing image upload...');
+        console.log("Processing image upload...");
         const uploadResult = await uploadFile(
-          req.file.buffer, 
+          req.file.buffer,
           req.file.originalname
         );
         imageUrl = uploadResult.url;
-        console.log('Image uploaded successfully:', { url: imageUrl });
+        console.log("Image uploaded successfully:", { url: imageUrl });
       } catch (uploadError: any) {
-        console.error('Image upload failed:', uploadError);
-        return res.status(500).json({ 
-          error: "Failed to upload image", 
-          details: uploadError.message 
+        console.error("Image upload failed:", uploadError);
+        return res.status(500).json({
+          error: "Failed to upload image",
+          details: uploadError.message,
         });
       }
     }
@@ -114,14 +137,18 @@ router.post("/", requireAuth, upload.single("image"), async (req, res) => {
 
     // Validate required fields
     if (!title || !content || !category_id) {
-      console.error('Missing required fields:', { title, content, category_id });
-      return res.status(400).json({ 
+      console.error("Missing required fields:", {
+        title,
+        content,
+        category_id,
+      });
+      return res.status(400).json({
         error: "Missing required fields",
         details: {
           title: !title,
           content: !content,
-          category_id: !category_id
-        }
+          category_id: !category_id,
+        },
       });
     }
 
@@ -132,10 +159,10 @@ router.post("/", requireAuth, upload.single("image"), async (req, res) => {
       category_id: parseInt(category_id, 10), // Ensure category_id is a number
       image_url: imageUrl,
       created_at: new Date().toISOString(),
-      ...(excerpt && { excerpt: excerpt.trim() })
+      ...(excerpt && { excerpt: excerpt.trim() }),
     };
 
-    console.log('Attempting to insert article with data:', articleData);
+    console.log("Attempting to insert article with data:", articleData);
 
     const { data: article, error: dbError } = await db
       .from("articles")
@@ -144,22 +171,22 @@ router.post("/", requireAuth, upload.single("image"), async (req, res) => {
       .single();
 
     if (dbError) {
-      console.error('Database error:', dbError);
+      console.error("Database error:", dbError);
       throw new Error(`Database error: ${dbError.message}`);
     }
 
     if (!article) {
-      throw new Error('Article creation failed - no data returned');
+      throw new Error("Article creation failed - no data returned");
     }
 
-    console.log('Article created successfully:', article);
+    console.log("Article created successfully:", article);
     res.status(201).json(article);
   } catch (error: any) {
-    console.error('Error creating article:', error);
-    res.status(500).json({ 
-      error: 'Failed to create article',
+    console.error("Error creating article:", error);
+    res.status(500).json({
+      error: "Failed to create article",
       details: error.message,
-      ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
+      ...(process.env.NODE_ENV === "development" && { stack: error.stack }),
     });
   }
 });
@@ -173,20 +200,23 @@ router.put("/:id", requireAuth, upload.single("image"), async (req, res) => {
     // Upload new image if provided
     if (req.file) {
       try {
-        console.log('Processing image upload for update...');
+        console.log("Processing image upload for update...");
         const uploadResult = await uploadFile(
-          req.file.buffer, 
+          req.file.buffer,
           req.file.originalname,
           (req as any).token
         );
         updates.image_url = uploadResult.url;
         updates.image_path = uploadResult.path;
-        console.log('Image uploaded successfully:', { url: updates.image_url, path: updates.image_path });
+        console.log("Image uploaded successfully:", {
+          url: updates.image_url,
+          path: updates.image_path,
+        });
       } catch (uploadError: any) {
-        console.error('Image upload failed:', uploadError);
-        return res.status(500).json({ 
-          error: "Failed to upload image", 
-          details: uploadError.message 
+        console.error("Image upload failed:", uploadError);
+        return res.status(500).json({
+          error: "Failed to upload image",
+          details: uploadError.message,
         });
       }
     }
@@ -206,10 +236,10 @@ router.put("/:id", requireAuth, upload.single("image"), async (req, res) => {
 
     res.json(article);
   } catch (error: any) {
-    console.error('Error updating article:', error);
-    res.status(500).json({ 
-      error: 'Failed to update article',
-      details: error.message 
+    console.error("Error updating article:", error);
+    res.status(500).json({
+      error: "Failed to update article",
+      details: error.message,
     });
   }
 });
@@ -239,9 +269,9 @@ router.delete("/:id", requireAuth, async (req, res) => {
     res.json({ message: "Article deleted successfully" });
   } catch (error: any) {
     console.error("Error deleting article:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: "Failed to delete article",
-      details: error.message
+      details: error.message,
     });
   }
 });

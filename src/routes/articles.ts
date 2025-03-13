@@ -88,7 +88,6 @@ router.get("/:id", async (req, res, next) => {
         image: article.image_url || `${baseUrl}/default-article-image.jpg`,
         url: `${baseUrl}/articles/${article.id}`,
         type: "article",
-        site_name: process.env.SITE_NAME || "Havaasa",
       },
     };
 

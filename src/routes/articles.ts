@@ -106,18 +106,12 @@ router.get("/:id", async (req, res, next) => {
       return res.status(404).json({ message: "Article not found" });
     }
 
-    // Default fallback image URL using existing og-image.png
-    const defaultImageUrl = `${baseUrl}/og-image.png`;
-
-    // Ensure image_url is absolute and uses HTTPS, or use fallback
+    // Ensure image_url is absolute and uses HTTPS
     const imageUrl = article.image_url
       ? article.image_url.startsWith("http")
         ? article.image_url.replace("http://", "https://")
         : `https://gaafu-magazine-test-eight.vercel.app${article.image_url}`
-      : defaultImageUrl;
-
-    // Get category name for better OG description
-    const categoryName = article.categories?.name || "";
+      : `${baseUrl}/default-article-image.jpg`;
 
     const metadata = {
       ...article,
@@ -131,7 +125,6 @@ router.get("/:id", async (req, res, next) => {
         type: "article",
         site_name: "Gaafu Magazine",
         locale: "dv_MV",
-        category: categoryName,
       },
     };
 

@@ -2,6 +2,8 @@ import express from "express";
 import { db } from "../db";
 import { upload } from "../middleware/upload";
 import { uploadFile } from "../utils/storage";
+import { isSocialMediaCrawler } from "../utils/crawlerDetector";
+import { generateMetaHTML } from "../utils/metaTagTemplate";
 
 const router = express.Router();
 
@@ -59,6 +61,7 @@ router.get("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
     const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+    const userAgent = req.headers["user-agent"] || "";
 
     const { data: article, error } = await db
       .from("articles")
@@ -78,7 +81,6 @@ router.get("/:id", async (req, res, next) => {
       return res.status(404).json({ message: "Article not found" });
     }
 
-    // Add metadata for OG tags
     const metadata = {
       ...article,
       og: {
@@ -92,6 +94,22 @@ router.get("/:id", async (req, res, next) => {
       },
     };
 
+    // If it's a social media crawler, return pre-rendered HTML
+    if (isSocialMediaCrawler(userAgent)) {
+      const html = generateMetaHTML({
+        title: metadata.og.title,
+        description: metadata.og.description,
+        image: metadata.og.image,
+        url: metadata.og.url,
+        type: metadata.og.type,
+        site_name: metadata.og.site_name,
+      });
+
+      res.setHeader("Content-Type", "text/html");
+      return res.send(html);
+    }
+
+    // For regular requests, return JSON as before
     res.json(metadata);
   } catch (error: any) {
     console.error("Error fetching article:", error);

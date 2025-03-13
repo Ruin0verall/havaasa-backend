@@ -60,7 +60,7 @@ router.get("/", async (req, res, next) => {
 router.get("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+    const baseUrl = "https://gaafu-magazine-test-eight.vercel.app";
     const userAgent = req.headers["user-agent"] || "";
 
     const { data: article, error } = await db
@@ -81,16 +81,25 @@ router.get("/:id", async (req, res, next) => {
       return res.status(404).json({ message: "Article not found" });
     }
 
+    // Ensure image_url is absolute and uses HTTPS
+    const imageUrl = article.image_url
+      ? article.image_url.startsWith("http")
+        ? article.image_url.replace("http://", "https://")
+        : `https://gaafu-magazine-test-eight.vercel.app${article.image_url}`
+      : `${baseUrl}/default-article-image.jpg`;
+
     const metadata = {
       ...article,
       og: {
         title: article.title,
         description:
-          article.excerpt || article.content.substring(0, 200) + "...",
-        image: article.image_url || `${baseUrl}/default-article-image.jpg`,
-        url: `${baseUrl}/articles/${article.id}`,
+          article.excerpt ||
+          (article.content ? article.content.substring(0, 200) + "..." : ""),
+        image: imageUrl,
+        url: `${baseUrl}/article/${article.id}`,
         type: "article",
-        site_name: process.env.SITE_NAME || "Havaasa",
+        site_name: "Gaafu Magazine",
+        locale: "dv_MV",
       },
     };
 
@@ -105,7 +114,10 @@ router.get("/:id", async (req, res, next) => {
         site_name: metadata.og.site_name,
       });
 
+      // Set headers for better crawler support
       res.setHeader("Content-Type", "text/html");
+      res.setHeader("Cache-Control", "public, max-age=300"); // Cache for 5 minutes
+      res.setHeader("X-Robots-Tag", "all");
       return res.send(html);
     }
 

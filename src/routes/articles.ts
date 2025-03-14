@@ -56,6 +56,55 @@ router.get("/", async (req, res, next) => {
   }
 });
 
+// Get latest articles with pagination
+router.get("/latest", async (req, res, next) => {
+  try {
+    // Get page and limit from query params, default to page 1 and limit 10
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const offset = (page - 1) * limit;
+
+    // Get total count for pagination
+    const { count } = await db
+      .from("articles")
+      .select("*", { count: "exact", head: true });
+
+    // Get paginated articles with categories
+    const { data, error } = await db
+      .from("articles")
+      .select(
+        `
+        *,
+        categories (
+          name
+        )
+      `
+      )
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+
+    // Calculate total pages
+    const totalPages = Math.ceil((count || 0) / limit);
+
+    // Return response with pagination metadata
+    res.json({
+      data,
+      pagination: {
+        total: count,
+        page,
+        limit,
+        totalPages,
+        hasMore: page < totalPages,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error fetching latest articles:", error);
+    next(error);
+  }
+});
+
 // Get single article
 router.get("/:id", async (req, res, next) => {
   try {
@@ -356,55 +405,6 @@ router.delete("/:id", requireAuth, async (req, res) => {
       error: "Failed to delete article",
       details: error.message,
     });
-  }
-});
-
-// Get latest articles with pagination
-router.get("/latest", async (req, res, next) => {
-  try {
-    // Get page and limit from query params, default to page 1 and limit 10
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
-    const offset = (page - 1) * limit;
-
-    // Get total count for pagination
-    const { count } = await db
-      .from("articles")
-      .select("*", { count: "exact", head: true });
-
-    // Get paginated articles with categories
-    const { data, error } = await db
-      .from("articles")
-      .select(
-        `
-        *,
-        categories (
-          name
-        )
-      `
-      )
-      .order("created_at", { ascending: false })
-      .range(offset, offset + limit - 1);
-
-    if (error) throw error;
-
-    // Calculate total pages
-    const totalPages = Math.ceil((count || 0) / limit);
-
-    // Return response with pagination metadata
-    res.json({
-      data,
-      pagination: {
-        total: count,
-        page,
-        limit,
-        totalPages,
-        hasMore: page < totalPages,
-      },
-    });
-  } catch (error: any) {
-    console.error("Error fetching latest articles:", error);
-    next(error);
   }
 });
 

@@ -4,8 +4,102 @@ import { upload } from "../middleware/upload";
 import { uploadFile } from "../utils/storage";
 import { isSocialMediaCrawler } from "../utils/crawlerDetector";
 import { generateMetaHTML } from "../utils/metaTagTemplate";
+import NodeCache from "node-cache";
+import compression from "compression";
+import rateLimit from "express-rate-limit";
+import sharp from "sharp";
+import helmet from "helmet";
+import { body, param, validationResult } from "express-validator";
 
 const router = express.Router();
+
+// Initialize cache with 5 minutes TTL
+const cache = new NodeCache({ stdTTL: 300 });
+
+// Add security headers
+router.use(helmet());
+
+// Add compression middleware
+router.use(compression());
+
+// Add rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: { error: "Too many requests, please try again later." },
+});
+
+router.use(limiter);
+
+// Add performance logging middleware
+const performanceLogger = (
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    console.log(`${req.method} ${req.originalUrl} - ${duration}ms`);
+  });
+  next();
+};
+
+router.use(performanceLogger);
+
+// Error handling middleware
+const errorHandler = (
+  error: any,
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) => {
+  console.error("Error:", error);
+
+  // Handle specific error types
+  if (error.code === "23505") {
+    return res.status(409).json({
+      error: "Conflict",
+      message: "Resource already exists",
+    });
+  }
+
+  // Default error response
+  res.status(500).json({
+    error: "Internal Server Error",
+    message:
+      process.env.NODE_ENV === "development"
+        ? error.message
+        : "An unexpected error occurred",
+    ...(process.env.NODE_ENV === "development" && { stack: error.stack }),
+  });
+};
+
+// Image optimization function
+const optimizeImage = async (buffer: Buffer): Promise<Buffer> => {
+  return sharp(buffer)
+    .resize(1200, 630, {
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .jpeg({ quality: 80 })
+    .toBuffer();
+};
+
+// Validation middleware for article creation
+const validateArticleCreate = [
+  body("title").trim().notEmpty().withMessage("Title is required"),
+  body("content").trim().notEmpty().withMessage("Content is required"),
+  body("category_id").isInt().withMessage("Valid category ID is required"),
+  body("excerpt").optional().trim(),
+  (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+    next();
+  },
+];
 
 // Middleware to handle authentication
 const requireAuth = async (
@@ -39,37 +133,18 @@ const requireAuth = async (
   }
 };
 
-// Get all articles
+// Get all articles with caching
 router.get("/", async (req, res, next) => {
   try {
-    const { data, error } = await db
-      .from("articles")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const cacheKey = "all_articles";
+    const cachedData = cache.get(cacheKey);
 
-    if (error) throw error;
+    if (cachedData) {
+      console.log("Cache hit: Returning cached articles");
+      return res.json(cachedData);
+    }
 
-    res.json(data);
-  } catch (error: any) {
-    console.error("Error fetching articles:", error);
-    next(error);
-  }
-});
-
-// Get latest articles with pagination
-router.get("/latest", async (req, res, next) => {
-  try {
-    // Get page and limit from query params, default to page 1 and limit 10
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
-    const offset = (page - 1) * limit;
-
-    // Get total count for pagination
-    const { count } = await db
-      .from("articles")
-      .select("*", { count: "exact", head: true });
-
-    // Get paginated articles with categories
+    console.log("Cache miss: Fetching articles from database");
     const { data, error } = await db
       .from("articles")
       .select(
@@ -80,16 +155,56 @@ router.get("/latest", async (req, res, next) => {
         )
       `
       )
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    // Store in cache
+    cache.set(cacheKey, data);
+
+    // Set cache headers
+    res.setHeader("Cache-Control", "public, max-age=300");
+    res.json(data);
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+// Get latest articles with optimized query and caching
+router.get("/latest", async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `latest_articles_p${page}_l${limit}`;
+    const cachedData = cache.get(cacheKey);
+
+    if (cachedData) {
+      console.log("Cache hit: Returning cached latest articles");
+      return res.json(cachedData);
+    }
+
+    console.log("Cache miss: Fetching latest articles from database");
+    // Optimized single query with count
+    const { data, error, count } = await db
+      .from("articles")
+      .select(
+        `
+        *,
+        categories (
+          name
+        )
+      `,
+        { count: "exact" }
+      )
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
 
     if (error) throw error;
 
-    // Calculate total pages
     const totalPages = Math.ceil((count || 0) / limit);
-
-    // Return response with pagination metadata
-    res.json({
+    const response = {
       data,
       pagination: {
         total: count,
@@ -98,26 +213,33 @@ router.get("/latest", async (req, res, next) => {
         totalPages,
         hasMore: page < totalPages,
       },
-    });
+    };
+
+    // Cache the response
+    cache.set(cacheKey, response);
+    res.json(response);
   } catch (error: any) {
     console.error("Error fetching latest articles:", error);
     next(error);
   }
 });
 
-// Get single article
+// Get single article with caching and conditional response
 router.get("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
     const baseUrl = "https://gaafu-magazine-test-eight.vercel.app";
     const userAgent = req.headers["user-agent"] || "";
+    const cacheKey = `article_${id}`;
 
-    // Log incoming requests for debugging
-    console.log(`Incoming request for article ${id}:`, {
-      userAgent,
-      isCrawler: isSocialMediaCrawler(userAgent),
-    });
+    // Check cache first
+    const cachedArticle = cache.get(cacheKey);
+    if (cachedArticle && !isSocialMediaCrawler(userAgent)) {
+      console.log("Cache hit: Returning cached article");
+      return res.json(cachedArticle);
+    }
 
+    console.log("Cache miss: Fetching article from database");
     const { data: article, error } = await db
       .from("articles")
       .select(
@@ -184,6 +306,11 @@ router.get("/:id", async (req, res, next) => {
       },
     };
 
+    // Cache the metadata for non-crawler requests
+    if (!isSocialMediaCrawler(userAgent)) {
+      cache.set(cacheKey, metadata);
+    }
+
     // If it's a social media crawler, return pre-rendered HTML
     if (isSocialMediaCrawler(userAgent)) {
       try {
@@ -207,205 +334,184 @@ router.get("/:id", async (req, res, next) => {
       }
     }
 
-    // For regular requests, return JSON as before
-    res.status(200).json(metadata);
+    // For regular requests, return JSON
+    res.json(metadata);
   } catch (error: any) {
     console.error("Error fetching article:", error);
-    if (isSocialMediaCrawler(req.headers["user-agent"] || "")) {
-      return res.status(500).send(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Error | Gaafu Magazine</title>
-            <meta name="description" content="An error occurred while fetching the article." />
-          </head>
-          <body>
-            <h1>Error</h1>
-            <p>An error occurred while fetching the article.</p>
-          </body>
-        </html>
-      `);
-    }
     next(error);
   }
 });
 
-// Create article with image upload
-router.post("/", requireAuth, upload.single("image"), async (req, res) => {
-  try {
-    console.log("Creating article with data:", {
-      ...req.body,
-      file: req.file
-        ? {
-            originalname: req.file.originalname,
-            mimetype: req.file.mimetype,
-            size: req.file.size,
-          }
-        : "not present",
-    });
+// Modify the create article route to include validation and image optimization
+router.post(
+  "/",
+  requireAuth,
+  upload.single("image"),
+  validateArticleCreate,
+  async (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    try {
+      let imageUrl = null;
 
-    let imageUrl = null;
-
-    // Upload image if provided
-    if (req.file) {
-      try {
-        console.log("Processing image upload...");
-        const uploadResult = await uploadFile(
-          req.file.buffer,
-          req.file.originalname
-        );
-        imageUrl = uploadResult.url;
-        console.log("Image uploaded successfully:", { url: imageUrl });
-      } catch (uploadError: any) {
-        console.error("Image upload failed:", uploadError);
-        return res.status(500).json({
-          error: "Failed to upload image",
-          details: uploadError.message,
-        });
+      if (req.file) {
+        try {
+          console.log("Processing image upload...");
+          // Optimize image before upload
+          const optimizedBuffer = await optimizeImage(req.file.buffer);
+          const uploadResult = await uploadFile(
+            optimizedBuffer,
+            req.file.originalname
+          );
+          imageUrl = uploadResult.url;
+          console.log("Image uploaded successfully:", { url: imageUrl });
+        } catch (uploadError: any) {
+          console.error("Image upload failed:", uploadError);
+          return res.status(500).json({
+            error: "Failed to upload image",
+            details: uploadError.message,
+          });
+        }
       }
-    }
 
-    const { title, content, excerpt, category_id } = req.body;
+      const { title, content, excerpt, category_id } = req.body;
 
-    // Validate required fields
-    if (!title || !content || !category_id) {
-      console.error("Missing required fields:", {
-        title,
-        content,
-        category_id,
+      const articleData = {
+        title: title.trim(),
+        content: content.trim(),
+        category_id: parseInt(category_id, 10),
+        image_url: imageUrl,
+        created_at: new Date().toISOString(),
+        ...(excerpt && { excerpt: excerpt.trim() }),
+      };
+
+      const { data: article, error: dbError } = await db
+        .from("articles")
+        .insert([articleData])
+        .select()
+        .single();
+
+      if (dbError) throw dbError;
+
+      if (!article) {
+        throw new Error("Article creation failed - no data returned");
+      }
+
+      // Clear the all_articles cache when new article is created
+      cache.del("all_articles");
+
+      // Clear any cached latest articles
+      const keys = cache.keys();
+      keys.forEach((key) => {
+        if (key.startsWith("latest_articles_")) {
+          cache.del(key);
+        }
       });
-      return res.status(400).json({
-        error: "Missing required fields",
-        details: {
-          title: !title,
-          content: !content,
-          category_id: !category_id,
-        },
-      });
+
+      res.status(201).json(article);
+    } catch (error: any) {
+      next(error);
     }
-
-    // Create article data object matching the database schema
-    const articleData = {
-      title: title.trim(),
-      content: content.trim(),
-      category_id: parseInt(category_id, 10), // Ensure category_id is a number
-      image_url: imageUrl,
-      created_at: new Date().toISOString(),
-      ...(excerpt && { excerpt: excerpt.trim() }),
-    };
-
-    console.log("Attempting to insert article with data:", articleData);
-
-    const { data: article, error: dbError } = await db
-      .from("articles")
-      .insert([articleData])
-      .select()
-      .single();
-
-    if (dbError) {
-      console.error("Database error:", dbError);
-      throw new Error(`Database error: ${dbError.message}`);
-    }
-
-    if (!article) {
-      throw new Error("Article creation failed - no data returned");
-    }
-
-    console.log("Article created successfully:", article);
-    res.status(201).json(article);
-  } catch (error: any) {
-    console.error("Error creating article:", error);
-    res.status(500).json({
-      error: "Failed to create article",
-      details: error.message,
-      ...(process.env.NODE_ENV === "development" && { stack: error.stack }),
-    });
   }
-});
+);
 
 // Update article with image upload
-router.put("/:id", requireAuth, upload.single("image"), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const updates: any = { ...req.body };
+router.put(
+  "/:id",
+  requireAuth,
+  upload.single("image"),
+  async (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    try {
+      const { id } = req.params;
+      const updates: any = { ...req.body };
 
-    // Upload new image if provided
-    if (req.file) {
-      try {
-        console.log("Processing image upload for update...");
-        const uploadResult = await uploadFile(
-          req.file.buffer,
-          req.file.originalname,
-          (req as any).token
-        );
-        updates.image_url = uploadResult.url;
-        updates.image_path = uploadResult.path;
-        console.log("Image uploaded successfully:", {
-          url: updates.image_url,
-          path: updates.image_path,
-        });
-      } catch (uploadError: any) {
-        console.error("Image upload failed:", uploadError);
-        return res.status(500).json({
-          error: "Failed to upload image",
-          details: uploadError.message,
-        });
+      // Upload new image if provided
+      if (req.file) {
+        try {
+          console.log("Processing image upload for update...");
+          const uploadResult = await uploadFile(
+            req.file.buffer,
+            req.file.originalname,
+            (req as any).token
+          );
+          updates.image_url = uploadResult.url;
+          updates.image_path = uploadResult.path;
+          console.log("Image uploaded successfully:", {
+            url: updates.image_url,
+            path: updates.image_path,
+          });
+        } catch (uploadError: any) {
+          console.error("Image upload failed:", uploadError);
+          return res.status(500).json({
+            error: "Failed to upload image",
+            details: uploadError.message,
+          });
+        }
       }
+
+      const { data: article, error } = await db
+        .from("articles")
+        .update(updates)
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (!article) {
+        return res.status(404).json({ error: "Article not found" });
+      }
+
+      res.json(article);
+    } catch (error: any) {
+      next(error);
     }
-
-    const { data: article, error } = await db
-      .from("articles")
-      .update(updates)
-      .eq("id", id)
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    if (!article) {
-      return res.status(404).json({ error: "Article not found" });
-    }
-
-    res.json(article);
-  } catch (error: any) {
-    console.error("Error updating article:", error);
-    res.status(500).json({
-      error: "Failed to update article",
-      details: error.message,
-    });
   }
-});
+);
 
 // Delete article
-router.delete("/:id", requireAuth, async (req, res) => {
-  try {
-    const { id } = req.params;
+router.delete(
+  "/:id",
+  requireAuth,
+  async (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    try {
+      const { id } = req.params;
 
-    // First, get the article to check if it has an image
-    const { data: article, error: fetchError } = await db
-      .from("articles")
-      .select("image_path")
-      .eq("id", id)
-      .single();
+      // First, get the article to check if it has an image
+      const { data: article, error: fetchError } = await db
+        .from("articles")
+        .select("image_path")
+        .eq("id", id)
+        .single();
 
-    if (fetchError) throw fetchError;
+      if (fetchError) throw fetchError;
 
-    // Delete the article
-    const { error: deleteError } = await db
-      .from("articles")
-      .delete()
-      .eq("id", id);
+      // Delete the article
+      const { error: deleteError } = await db
+        .from("articles")
+        .delete()
+        .eq("id", id);
 
-    if (deleteError) throw deleteError;
+      if (deleteError) throw deleteError;
 
-    res.json({ message: "Article deleted successfully" });
-  } catch (error: any) {
-    console.error("Error deleting article:", error);
-    res.status(500).json({
-      error: "Failed to delete article",
-      details: error.message,
-    });
+      res.json({ message: "Article deleted successfully" });
+    } catch (error: any) {
+      next(error);
+    }
   }
-});
+);
+
+// Add error handler at the end
+router.use(errorHandler);
 
 export default router;

@@ -24,16 +24,14 @@ const app = express();
 app.use(
   cors({
     origin: [
-      "http://localhost:5173",
+      "https://www.havaasa.com",
+      "https://havaasa.com",
       "http://localhost:3000",
-      "http://localhost:8082",
-      "http://127.0.0.1:8082",
-      "https://www.havaasa.com/",
     ],
-    credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Accept"],
-    optionsSuccessStatus: 200,
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+    maxAge: 86400,
   })
 );
 
@@ -82,17 +80,10 @@ app.use((req, res) => {
 });
 
 // Server initialization
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3001;
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
-  console.log("CORS enabled for origins:", [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://localhost:8082",
-    "http://127.0.0.1:8082",
-    "https://gaafu-magazine-test-eight.vercel.app",
-  ]);
 });
 
 export default app;

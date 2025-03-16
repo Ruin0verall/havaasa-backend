@@ -264,7 +264,7 @@ router.get("/:id", async (req, res, next) => {
           <!DOCTYPE html>
           <html>
             <head>
-              <title>Article Not Found | Gaafu Magazine</title>
+              <title>Article Not Found | Havaasa</title>
               <meta name="description" content="The requested article could not be found." />
             </head>
             <body>
@@ -300,7 +300,7 @@ router.get("/:id", async (req, res, next) => {
         image: imageUrl,
         url: `${baseUrl}/article/${article.id}`,
         type: "article",
-        site_name: "Gaafu Magazine",
+        site_name: "Havaasa",
         locale: "dv_MV",
         category: categoryName,
       },

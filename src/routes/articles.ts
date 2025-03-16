@@ -228,7 +228,7 @@ router.get("/latest", async (req, res, next) => {
 router.get("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const baseUrl = "https://gaafu-magazine-test-eight.vercel.app";
+    const baseUrl = "https://www.havaasa.com";
     const userAgent = req.headers["user-agent"] || "";
     const cacheKey = `article_${id}`;
 
@@ -284,7 +284,7 @@ router.get("/:id", async (req, res, next) => {
     const imageUrl = article.image_url
       ? article.image_url.startsWith("http")
         ? article.image_url.replace("http://", "https://")
-        : `https://gaafu-magazine-test-eight.vercel.app${article.image_url}`
+        : `https://www.havaasa.com${article.image_url}`
       : defaultImageUrl;
 
     // Get category name for better OG description

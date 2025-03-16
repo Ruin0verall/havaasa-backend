@@ -28,7 +28,7 @@ app.use(
       "http://localhost:3000",
       "http://localhost:8082",
       "http://127.0.0.1:8082",
-      "https://gaafu-magazine-test-eight.vercel.app",
+      "https://www.havaasa.com/",
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],

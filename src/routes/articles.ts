@@ -139,6 +139,11 @@ router.get("/", async (req, res, next) => {
     const cacheKey = "all_articles";
     const cachedData = cache.get(cacheKey);
 
+    // Set cache control headers regardless of cache hit/miss
+    res.setHeader("Cache-Control", "no-cache, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+
     if (cachedData) {
       console.log("Cache hit: Returning cached articles");
       return res.json(cachedData);
@@ -159,11 +164,8 @@ router.get("/", async (req, res, next) => {
 
     if (error) throw error;
 
-    // Store in cache
-    cache.set(cacheKey, data);
-
-    // Set cache headers
-    res.setHeader("Cache-Control", "public, max-age=300");
+    // Store in cache with shorter TTL
+    cache.set(cacheKey, data, 60); // Cache for 1 minute only
     res.json(data);
   } catch (error: any) {
     next(error);
@@ -178,6 +180,12 @@ router.get("/latest", async (req, res, next) => {
     const offset = (page - 1) * limit;
 
     const cacheKey = `latest_articles_p${page}_l${limit}`;
+
+    // Set cache control headers
+    res.setHeader("Cache-Control", "no-cache, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+
     const cachedData = cache.get(cacheKey);
 
     if (cachedData) {
@@ -186,7 +194,6 @@ router.get("/latest", async (req, res, next) => {
     }
 
     console.log("Cache miss: Fetching latest articles from database");
-    // Optimized single query with count
     const { data, error, count } = await db
       .from("articles")
       .select(
@@ -215,11 +222,10 @@ router.get("/latest", async (req, res, next) => {
       },
     };
 
-    // Cache the response
-    cache.set(cacheKey, response);
+    // Cache the response for a shorter duration
+    cache.set(cacheKey, response, 60); // Cache for 1 minute only
     res.json(response);
   } catch (error: any) {
-    console.error("Error fetching latest articles:", error);
     next(error);
   }
 });
@@ -399,16 +405,18 @@ router.post(
         throw new Error("Article creation failed - no data returned");
       }
 
-      // Clear the all_articles cache when new article is created
-      cache.del("all_articles");
-
-      // Clear any cached latest articles
+      // Clear all article-related caches
       const keys = cache.keys();
       keys.forEach((key) => {
-        if (key.startsWith("latest_articles_")) {
+        if (key.includes("articles")) {
           cache.del(key);
         }
       });
+
+      // Set cache control headers
+      res.setHeader("Cache-Control", "no-cache, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
 
       res.status(201).json(article);
     } catch (error: any) {

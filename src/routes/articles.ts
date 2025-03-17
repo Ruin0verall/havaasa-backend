@@ -22,14 +22,18 @@ router.use(helmet());
 // Add compression middleware
 router.use(compression());
 
-// Add rate limiting
+// Add rate limiting with more lenient configuration
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: { error: "Too many requests, please try again later." },
+  windowMs: 1 * 60 * 1000, // 1 minute window
+  max: 300, // limit each IP to 300 requests per windowMs
+  message: {
+    error: "Too many requests, please try again later",
+    retryAfter: "60 seconds",
+  },
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  skipSuccessfulRequests: true, // Don't count successful requests against the rate limit
 });
-
-router.use(limiter);
 
 // Add performance logging middleware
 const performanceLogger = (
@@ -134,7 +138,7 @@ const requireAuth = async (
 };
 
 // Get all articles with caching
-router.get("/", async (req, res, next) => {
+router.get("/", limiter, async (req, res, next) => {
   try {
     const cacheKey = "all_articles";
     const cachedData = cache.get(cacheKey);
@@ -173,7 +177,7 @@ router.get("/", async (req, res, next) => {
 });
 
 // Get latest articles with optimized query and caching
-router.get("/latest", async (req, res, next) => {
+router.get("/latest", limiter, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
@@ -231,7 +235,7 @@ router.get("/latest", async (req, res, next) => {
 });
 
 // Get single article with caching and conditional response
-router.get("/:id", async (req, res, next) => {
+router.get("/:id", limiter, async (req, res, next) => {
   try {
     const { id } = req.params;
     const baseUrl = "https://www.havaasa.com";

@@ -29,7 +29,22 @@ app.use(
       "http://localhost:3000",
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "Cache-Control",
+      "Pragma",
+      "Expires",
+      "Accept",
+      "X-Requested-With",
+    ],
+    exposedHeaders: [
+      "Cache-Control",
+      "Content-Length",
+      "Content-Type",
+      "Expires",
+      "Pragma",
+    ],
     credentials: true,
     maxAge: 86400,
   })
